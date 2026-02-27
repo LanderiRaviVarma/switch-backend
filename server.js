@@ -245,7 +245,7 @@ app.get('/api/messages/:userId/:contactId', (req, res) => {
     const isGhost = req.query.ghost === 'true' ? 1 : 0;
 
     const query = `
-        SELECT m.id, m.content, m.created_at, m.is_ghost, m.sender_id, m.receiver_id
+        SELECT m.id, m.content, m.created_at, m.is_ghost, m.sender_id, m.receiver_id, m.edited
         FROM messages m
         WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?))
         AND m.is_ghost = ?
@@ -288,7 +288,7 @@ app.delete('/api/message/:messageId', (req, res) => {
 app.put('/api/message/:messageId', (req, res) => {
     const { messageId } = req.params;
     const { content } = req.body;
-    db.run('UPDATE messages SET content = ? WHERE id = ?', [content, messageId], function (err) {
+    db.run('UPDATE messages SET content = ?, edited = 1 WHERE id = ?', [content, messageId], function (err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: 'Message edited successfully' });
     });
@@ -480,6 +480,27 @@ io.on('connection', (socket) => {
         });
         stmt.finalize();
     });
+
+    // Delete message — propagate to both sides
+    socket.on('delete_message', (data) => {
+        const { messageId, receiver_id } = data;
+        const receiverSocketId = activeUsers.get(receiver_id);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('message_deleted', { id: messageId });
+        }
+        socket.emit('message_deleted', { id: messageId });
+    });
+
+    // Edit message — propagate to both sides
+    socket.on('edit_message', (data) => {
+        const { messageId, content, receiver_id } = data;
+        const receiverSocketId = activeUsers.get(receiver_id);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('message_edited', { id: messageId, content });
+        }
+        socket.emit('message_edited', { id: messageId, content });
+    });
+
 
     // Group Message via WebSocket
     socket.on('send_group_message', (data) => {

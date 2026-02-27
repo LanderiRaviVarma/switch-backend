@@ -63,6 +63,7 @@ function initializeDatabase() {
         db.run("ALTER TABLE users ADD COLUMN status_content TEXT", (err) => { });
         db.run("ALTER TABLE users ADD COLUMN status_updated_at DATETIME", (err) => { });
         db.run("ALTER TABLE messages ADD COLUMN group_id INTEGER REFERENCES groups(id)", (err) => { });
+        db.run("ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0", (err) => { });
     });
 }
 
