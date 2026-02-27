@@ -132,6 +132,33 @@ app.post('/api/users/find_or_create', (req, res) => {
     });
 });
 
+// 2.52 Match phone numbers — find which ones are already on Switch
+// Accepts { phones: ['9876543210', '9123456789', ...] } (last 10 digits)
+app.post('/api/users/match', (req, res) => {
+    const { phones } = req.body;
+    if (!phones || !Array.isArray(phones) || phones.length === 0) {
+        return res.json({ users: [] });
+    }
+
+    // Normalize: we store full E164 (+91XXXXXXXXXX) but the app sends last 10 digits
+    // Match on last 10 digits of stored phone_number
+    const placeholders = phones.map(() => '?').join(', ');
+
+    // Use LIKE matching for last 10 digits
+    const conditions = phones.map(p => `phone_number LIKE '%${p.replace(/[^0-9]/g, '').slice(-10)}'`).join(' OR ');
+
+    db.all(
+        `SELECT id, phone_number, name, profile_image FROM users WHERE ${conditions}`,
+        [],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ users: rows || [] });
+        }
+    );
+});
+
+
+
 // 2.55 Get Single User Profile
 app.get('/api/users/:userId', (req, res) => {
     const userId = req.params.userId;
