@@ -64,6 +64,17 @@ function initializeDatabase() {
         db.run("ALTER TABLE users ADD COLUMN status_updated_at DATETIME", (err) => { });
         db.run("ALTER TABLE messages ADD COLUMN group_id INTEGER REFERENCES groups(id)", (err) => { });
         db.run("ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0", (err) => { });
+
+        // Create Statuses Table for 24-hr multi-status tracking
+        db.run(`CREATE TABLE IF NOT EXISTS statuses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            image_url TEXT,
+            text_content TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME DEFAULT (datetime('now', '+24 hours')),
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )`);
     });
 }
 

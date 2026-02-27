@@ -435,6 +435,95 @@ app.post('/api/upload', upload.single('media'), (req, res) => {
 });
 
 // =======================
+// STATUSES API (24HR / 15 LIMIT)
+// =======================
+
+// 6. Post a new status
+app.post('/api/users/:userId/status', (req, res) => {
+    const userId = req.params.userId;
+    const { image_url, text_content } = req.body;
+
+    if (!image_url && !text_content) {
+        return res.status(400).json({ error: 'Status must contain image or text' });
+    }
+
+    // Clean up expired statuses first
+    db.run("DELETE FROM statuses WHERE expires_at <= datetime('now')", (err) => {
+        // Enforce max 15 status limit per user
+        db.get('SELECT COUNT(*) as cnt FROM statuses WHERE user_id = ?', [userId], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            if (row.cnt >= 15) {
+                return res.status(403).json({ error: 'Maximum limit of 15 statuses reached. Please wait for expiry or delete one.' });
+            }
+
+            // Insert new status
+            const stmt = db.prepare('INSERT INTO statuses (user_id, image_url, text_content) VALUES (?, ?, ?)');
+            stmt.run(userId, image_url, text_content, function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: 'Status posted successfully', status_id: this.lastID });
+            });
+            stmt.finalize();
+        });
+    });
+});
+
+// 7. Get user's statuses (with time left)
+app.get('/api/users/:userId/status', (req, res) => {
+    const userId = req.params.userId;
+
+    // Auto cleanup expired statuses before returning
+    db.run("DELETE FROM statuses WHERE expires_at <= datetime('now')", (err) => {
+        db.all(`
+            SELECT id, image_url, text_content, created_at, expires_at,
+            CAST((julianday(expires_at) - julianday('now')) * 24 as INTEGER) as hours_left
+            FROM statuses 
+            WHERE user_id = ?
+            ORDER BY created_at ASC
+        `, [userId], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        });
+    });
+});
+
+// 8. Delete a specific status
+app.delete('/api/status/:statusId', (req, res) => {
+    const statusId = req.params.statusId;
+    db.run('DELETE FROM statuses WHERE id = ?', [statusId], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: 'Status deleted successfully' });
+    });
+});
+
+// 9. Fetch contact statuses feed (multi-status support)
+app.post('/api/statuses/feed', (req, res) => {
+    const { contacts } = req.body;
+    if (!contacts || !Array.isArray(contacts) || contacts.length === 0) return res.json([]);
+
+    const placeholders = contacts.map(() => '?').join(',');
+
+    // Auto cleanup expired
+    db.run("DELETE FROM statuses WHERE expires_at <= datetime('now')", (err) => {
+        const query = `
+            SELECT s.id, s.image_url, s.text_content, s.created_at, 
+                   u.name as user_name, u.phone_number, u.profile_image,
+                   CAST((julianday(s.expires_at) - julianday('now')) * 24 as INTEGER) as hours_left
+            FROM statuses s
+            JOIN users u ON u.id = s.user_id
+            WHERE u.phone_number IN (${placeholders})
+            ORDER BY s.created_at DESC
+        `;
+
+        db.all(query, contacts, (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        });
+    });
+});
+
+
+// =======================
 // WEBSOCKETS (LIVE CHAT)
 // =======================
 const activeUsers = new Map();
